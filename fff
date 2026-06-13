@@ -67,7 +67,8 @@ local State = {
     autoBatEquippedThisRun = false,
     _autoBatTarget = nil,
     _autoBatLastScan = 0,
-    autoTpDownEnabled = false,
+    stretchEnabled = false,
+    angrySkyEnabled = false,
 }
 
 local Keys = {
@@ -154,7 +155,7 @@ local function saveConfig()
         medusaCounter = State.medusaCounterEnabled, batCounter = State.batCounterEnabled,
         autoSteal = Steal.AutoStealEnabled, autoSwing = State.autoSwingEnabled,
         aimbotSpeed = State.aimbotSpeed, laggerNormalSpeed = State.laggerNormalSpeed,
-        uiLocked = State.uiLocked, autoTpDown = State.autoTpDownEnabled,
+        uiLocked = State.uiLocked,
     }
     local ok, enc = pcall(function() return HttpService:JSONEncode(cfg) end)
     if ok and enc then pcall(function() _writefile(CONFIG_FILE, enc) end) end
@@ -190,7 +191,6 @@ local function loadConfig()
     if cfg.aimbotSpeed then State.aimbotSpeed = cfg.aimbotSpeed end
     if cfg.laggerNormalSpeed then State.laggerNormalSpeed = cfg.laggerNormalSpeed end
     if cfg.uiLocked ~= nil then State.uiLocked = cfg.uiLocked end
-    if cfg.autoTpDown ~= nil then State.autoTpDownEnabled = cfg.autoTpDown end
 end
 
 for _,name in pairs({"opiumhubV5_3"}) do
@@ -811,44 +811,12 @@ local function stopBatAimbot()
     disableAutoBat()
 end
 
-local jumpCount = 0
-local lastJumpTime = 0
 UIS.JumpRequest:Connect(function()
     if not State.infJumpEnabled then return end
     local char = LP.Character
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
-    if root then
-        root.Velocity = Vector3.new(root.Velocity.X, 55, root.Velocity.Z)
-        if State.autoTpDownEnabled then
-            local now = tick()
-            if now - lastJumpTime < 0.6 then
-                jumpCount = jumpCount + 1
-            else
-                jumpCount = 1
-            end
-            lastJumpTime = now
-            if jumpCount >= 2 then
-                jumpCount = 1
-                task.delay(0.1, function()
-                    local c = LP.Character
-                    if not c then return end
-                    local r = c:FindFirstChild("HumanoidRootPart")
-                    if not r then return end
-                    local rp = RaycastParams.new()
-                    rp.FilterDescendantsInstances = {c}
-                    rp.FilterType = Enum.RaycastFilterType.Exclude
-                    local res = workspace:Raycast(r.Position, Vector3.new(0, -1000, 0), rp)
-                    if res then
-                        local hum2 = c:FindFirstChildOfClass("Humanoid")
-                        local off = (hum2 and hum2.HipHeight or 2) + (r.Size.Y / 2)
-                        r.CFrame = CFrame.new(r.Position.X, res.Position.Y + off, r.Position.Z)
-                        r.AssemblyLinearVelocity = Vector3.zero
-                    end
-                end)
-            end
-        end
-    end
+    if root then root.Velocity = Vector3.new(root.Velocity.X, 55, root.Velocity.Z) end
 end)
 
 RunService.Heartbeat:Connect(function()
@@ -1402,6 +1370,102 @@ local function stopAutoSteal()
     Steal.cachedPrompts = {}
 end
 
+-- ══════════════════════════════════════════
+-- STRETCH RES FUNCTIONS
+-- ══════════════════════════════════════════
+local stretchConn = nil
+local function applyStretch()
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "ANGRYHUB_STRETCH"
+    sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 998
+    pcall(function() sg.Parent = game:GetService("CoreGui") end)
+    if not sg.Parent then sg.Parent = LP.PlayerGui end
+
+    local frame = Instance.new("Frame", sg)
+    frame.Name = "StretchFrame"
+    frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    frame.Size = UDim2.new(1.334, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+
+    local camPart = Instance.new("Part", workspace)
+    camPart.Name = "ANGRY_STRETCH_CAM"
+    camPart.Anchored = true
+    camPart.CanCollide = false
+    camPart.Transparency = 1
+    camPart.Size = Vector3.new(0.1,0.1,0.1)
+    camPart.Position = Vector3.new(0,-9999,0)
+
+    workspace.CurrentCamera.FieldOfView = 55
+
+    stretchConn = RunService.RenderStepped:Connect(function()
+        if not State.stretchEnabled then return end
+        local cam = workspace.CurrentCamera
+        local vp = cam.ViewportSize
+        if vp.X > 0 and vp.Y > 0 then
+            local native = vp.X / vp.Y
+            local target = 4/3
+            local scaleX = native / target
+            frame.Size = UDim2.new(scaleX, 0, 1, 0)
+        end
+    end)
+end
+
+local function removeStretch()
+    if stretchConn then stretchConn:Disconnect(); stretchConn = nil end
+    local sg = game:GetService("CoreGui"):FindFirstChild("ANGRYHUB_STRETCH")
+    if sg then sg:Destroy() end
+    local sg2 = LP.PlayerGui:FindFirstChild("ANGRYHUB_STRETCH")
+    if sg2 then sg2:Destroy() end
+    local cp = workspace:FindFirstChild("ANGRY_STRETCH_CAM")
+    if cp then cp:Destroy() end
+    workspace.CurrentCamera.FieldOfView = 70
+end
+
+-- ══════════════════════════════════════════
+-- ANGRY SKY FUNCTIONS
+-- ══════════════════════════════════════════
+local defBrightness = Lighting.Brightness
+local defClockTime = Lighting.ClockTime
+local defOutdoorAmbient = Lighting.OutdoorAmbient
+local defExposureComp = Lighting.ExposureCompensation
+
+local function applyAngrySky()
+    local oldSky = Lighting:FindFirstChildOfClass("Sky")
+    if oldSky and oldSky.Name ~= "ANGRY_SKY" then oldSky.Parent = nil end
+    local sky = Instance.new("Sky")
+    sky.Name = "ANGRY_SKY"
+    sky.SkyboxBk = "rbxassetid://136055162054954"
+    sky.SkyboxDn = "rbxassetid://136055162054954"
+    sky.SkyboxFt = "rbxassetid://136055162054954"
+    sky.SkyboxLf = "rbxassetid://136055162054954"
+    sky.SkyboxRt = "rbxassetid://136055162054954"
+    sky.SkyboxUp = "rbxassetid://136055162054954"
+    sky.Parent = Lighting
+    Lighting.Brightness = 0.3
+    Lighting.ClockTime = 0
+    Lighting.ExposureCompensation = -1
+    Lighting.OutdoorAmbient = Color3.fromRGB(60, 0, 0)
+    local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+    if atm then atm.Density = 0.8; atm.Color = Color3.fromRGB(120,0,0); atm.Haze = 2 end
+end
+
+local function removeAngrySky()
+    local s = Lighting:FindFirstChild("ANGRY_SKY")
+    if s then s:Destroy() end
+    Lighting.Brightness = defBrightness
+    Lighting.ClockTime = defClockTime
+    Lighting.ExposureCompensation = defExposureComp
+    Lighting.OutdoorAmbient = defOutdoorAmbient
+end
+
+-- ══════════════════════════════════════════
+-- UI SECTIONS
+-- ══════════════════════════════════════════
+
 makeSectionHeader("AUTO")
 toggleRefs.autoSteal = makeToggleRow("Auto Steal", Steal.AutoStealEnabled, function(on)
     Steal.AutoStealEnabled = on
@@ -1420,9 +1484,6 @@ toggleRefs.antiRagdoll = makeToggleRow("Anti Ragdoll", State.antiRagdollEnabled,
     if on then startAntiRagdoll() else stopAntiRagdoll() end
 end)
 toggleRefs.infJump = makeToggleRow("Infinite Jump", State.infJumpEnabled, function(on) State.infJumpEnabled = on end)
-toggleRefs.autoTpDown = makeToggleRow("Auto TP Down", State.autoTpDownEnabled, function(on)
-    State.autoTpDownEnabled = on
-end)
 toggleRefs.medusaCounter = makeToggleRow("Medusa Counter", State.medusaCounterEnabled, function(on)
     State.medusaCounterEnabled = on
     if on then setupMedusaCounter(LP.Character) else stopMedusaCounter() end
@@ -1526,10 +1587,6 @@ makeToggleRow("Remove Accessories", false, function(on)
     if on then for _, p in pairs(Players:GetPlayers()) do removeClothingAndAccessories(p.Character) end end
 end)
 local nightModeEnabled = false
-local defBrightness = Lighting.Brightness
-local defClockTime = Lighting.ClockTime
-local defOutdoorAmbient = Lighting.OutdoorAmbient
-local defExposureComp = Lighting.ExposureCompensation
 makeToggleRow("Dark Mode", false, function(on)
     nightModeEnabled = on
     if on then
@@ -1548,6 +1605,27 @@ makeToggleRow("Dark Mode", false, function(on)
         Lighting.ExposureCompensation = defExposureComp; Lighting.OutdoorAmbient = defOutdoorAmbient
     end
 end)
+
+-- ★ NEW: Angry Sky Toggle
+makeToggleRow("Angry Sky", false, function(on)
+    State.angrySkyEnabled = on
+    if on then
+        applyAngrySky()
+    else
+        removeAngrySky()
+    end
+end)
+
+-- ★ NEW: Stretch Res Toggle
+makeToggleRow("Stretch Res", false, function(on)
+    State.stretchEnabled = on
+    if on then
+        applyStretch()
+    else
+        removeStretch()
+    end
+end)
+
 makeDivider()
 
 makeSectionHeader("SETTINGS")
@@ -1994,7 +2072,6 @@ if speedBoxRefs.normalSpeed then speedBoxRefs.normalSpeed.Text = tostring(State.
 if speedBoxRefs.carrySpeed then speedBoxRefs.carrySpeed.Text = tostring(State.carrySpeed) end
 if speedBoxRefs.laggerSpeed then speedBoxRefs.laggerSpeed.Text = tostring(State.laggerSpeed) end
 if toggleRefs.lockUI then toggleRefs.lockUI(State.uiLocked) end
-if toggleRefs.autoTpDown then toggleRefs.autoTpDown(State.autoTpDownEnabled) end
 
 startAntiRagdoll()
 startAutoSteal()
@@ -2008,116 +2085,50 @@ TweenService:Create(mainOuter, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.E
 task.spawn(function() while task.wait(10) do pcall(saveConfig) end end)
 
 task.spawn(function()
+    local PLAYLIST = {{id="rbxassetid://113745540904971", startAt=80, vol=1.5},{id="rbxassetid://113745540904971", startAt=6, vol=2.5}}
+    local pick = PLAYLIST[math.random(1,#PLAYLIST)]
     local lsSound = Instance.new("Sound")
-    lsSound.SoundId = "rbxassetid://136331441366861"
-    lsSound.Volume = 2
-    lsSound.TimePosition = 0
+    lsSound.SoundId = pick.id; lsSound.Volume = pick.vol; lsSound.TimePosition = pick.startAt
     lsSound.Parent = game:GetService("SoundService")
     pcall(function() lsSound:Play() end)
-
     local lsGui = Instance.new("ScreenGui")
-    lsGui.Name = "ANGRYHUBLOADSCREEN"
-    lsGui.ResetOnSpawn = false
-    lsGui.DisplayOrder = 9999
+    lsGui.Name = "ANGRYHUBLOADSCREEN"; lsGui.ResetOnSpawn = false; lsGui.DisplayOrder = 9999
     pcall(function() lsGui.Parent = game:GetService("CoreGui") end)
     if not lsGui.Parent then lsGui.Parent = LP:WaitForChild("PlayerGui") end
-
     local bg = Instance.new("Frame", lsGui)
-    bg.Size = UDim2.new(1, 0, 1, 0)
-    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    bg.BackgroundTransparency = 0
-    bg.BorderSizePixel = 0
-
-    local hLine = Instance.new("Frame", bg)
-    hLine.Size = UDim2.new(0, 0, 0, 2)
-    hLine.Position = UDim2.new(1, 0, 0.5, 0)
-    hLine.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    hLine.BorderSizePixel = 0
-    hLine.ZIndex = 5
-
-    TweenService:Create(hLine, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = UDim2.new(1, 0, 0, 2),
-        Position = UDim2.new(0, 0, 0.5, 0)
-    }):Play()
-
-    task.wait(0.2)
-
-    local vLine = Instance.new("Frame", bg)
-    vLine.Size = UDim2.new(0, 2, 0, 0)
-    vLine.Position = UDim2.new(0.5, -1, 0, 0)
-    vLine.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    vLine.BorderSizePixel = 0
-    vLine.ZIndex = 5
-
-    TweenService:Create(vLine, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 2, 1, 0)
-    }):Play()
-
-    task.wait(0.65)
-
+    bg.Size = UDim2.new(1,0,1,0); bg.BackgroundColor3 = Color3.fromRGB(0,0,0); bg.BackgroundTransparency = 0.35; bg.BorderSizePixel = 0
     local lbl = Instance.new("TextLabel", bg)
-    lbl.Size = UDim2.new(0, 400, 0, 90)
-    lbl.AnchorPoint = Vector2.new(0.5, 1)
-    lbl.Position = UDim2.new(0.5, 0, 0.5, -4)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = ""
-    lbl.TextColor3 = Color3.fromRGB(255, 40, 40)
-    lbl.Font = Enum.Font.GothamBlack
-    lbl.TextSize = 78
-    lbl.TextTransparency = 1
-    lbl.ZIndex = 10
-    local s1 = Instance.new("UIStroke", lbl)
-    s1.Color = Color3.fromRGB(0, 0, 0)
-    s1.Thickness = 1.5
-
+    lbl.Size = UDim2.new(0,320,0,70); lbl.AnchorPoint = Vector2.new(0.5,1); lbl.Position = UDim2.new(0.5,0,0.5,-2)
+    lbl.BackgroundTransparency = 1; lbl.Text = ""; lbl.TextColor3 = Color3.fromRGB(255,0,0)
+    lbl.Font = Enum.Font.GothamBlack; lbl.TextSize = 72
+    local stroke = Instance.new("UIStroke", lbl); stroke.Color = Color3.fromRGB(0,0,0); stroke.Thickness = 5
     local lbl2 = Instance.new("TextLabel", bg)
-    lbl2.Size = UDim2.new(0, 400, 0, 90)
-    lbl2.AnchorPoint = Vector2.new(0.5, 0)
-    lbl2.Position = UDim2.new(0.5, 0, 0.5, 4)
-    lbl2.BackgroundTransparency = 1
-    lbl2.Text = ""
-    lbl2.TextColor3 = Color3.fromRGB(200, 20, 20)
-    lbl2.Font = Enum.Font.GothamBlack
-    lbl2.TextSize = 78
-    lbl2.TextTransparency = 1
-    lbl2.ZIndex = 10
-    local s2 = Instance.new("UIStroke", lbl2)
-    s2.Color = Color3.fromRGB(0, 0, 0)
-    s2.Thickness = 1.5
-
+    lbl2.Size = UDim2.new(0,320,0,70); lbl2.AnchorPoint = Vector2.new(0.5,0); lbl2.Position = UDim2.new(0.5,0,0.5,2)
+    lbl2.BackgroundTransparency = 1; lbl2.Text = ""; lbl2.TextColor3 = Color3.fromRGB(220,30,30)
+    lbl2.Font = Enum.Font.GothamBlack; lbl2.TextSize = 72
+    local stroke2 = Instance.new("UIStroke", lbl2); stroke2.Color = Color3.fromRGB(0,0,0); stroke2.Thickness = 5
     local angryText = "ANGRY"
     for i = 1, #angryText do
         lbl.Text = string.sub(angryText, 1, i)
-        lbl.TextTransparency = 0
-        TweenService:Create(lbl, TweenInfo.new(0.06, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 86}):Play()
+        TweenService:Create(lbl, TweenInfo.new(0.06, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 80}):Play()
         task.wait(0.07)
-        TweenService:Create(lbl, TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextSize = 78}):Play()
+        TweenService:Create(lbl, TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextSize = 72}):Play()
     end
-
     local hubText = "HUB"
     for i = 1, #hubText do
         lbl2.Text = string.sub(hubText, 1, i)
-        lbl2.TextTransparency = 0
-        TweenService:Create(lbl2, TweenInfo.new(0.06, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 86}):Play()
+        TweenService:Create(lbl2, TweenInfo.new(0.06, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextSize = 80}):Play()
         task.wait(0.07)
-        TweenService:Create(lbl2, TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextSize = 78}):Play()
+        TweenService:Create(lbl2, TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextSize = 72}):Play()
     end
-
-    task.wait(0.5)
-
-    TweenService:Create(bg, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-    TweenService:Create(lbl, TweenInfo.new(0.35), {TextTransparency = 1}):Play()
-    TweenService:Create(lbl2, TweenInfo.new(0.35), {TextTransparency = 1}):Play()
-    TweenService:Create(hLine, TweenInfo.new(0.35), {BackgroundTransparency = 1}):Play()
-    TweenService:Create(vLine, TweenInfo.new(0.35), {BackgroundTransparency = 1}):Play()
-
-    task.wait(0.5)
+    task.wait(0.1)
+    TweenService:Create(lsSound, TweenInfo.new(0.3), {Volume = 0}):Play()
+    TweenService:Create(bg, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(lbl, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+    TweenService:Create(lbl2, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+    task.wait(0.4)
+    pcall(function() lsSound:Destroy() end)
     pcall(function() lsGui:Destroy() end)
-
-    if lsSound and lsSound.Parent then
-        lsSound.Ended:Wait()
-        pcall(function() lsSound:Destroy() end)
-    end
 end)
 
 local lp = Players.LocalPlayer
